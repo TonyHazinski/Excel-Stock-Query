@@ -6,7 +6,9 @@ Private Declare PtrSafe Function fread Lib "libc.dylib" (ByVal outStr As String,
 Private Declare PtrSafe Function feof Lib "libc.dylib" (ByVal file As LongPtr) As LongPtr
 Dim testVal As Integer
 Dim stocks(200) As String
-Dim values(200, 3) As Double
+Dim values(200, 2) As Double
+Dim nextAvailableIndex As Integer
+
 
 Function execShell(command As String, Optional ByRef exitCode As Long) As String
     Dim file As LongPtr
@@ -40,13 +42,10 @@ Function HTTPGet(URL As String) As String
     
 End Function
 
-Function getStockData(tickerId As String) As Double()
+Function getStockData(tickerID As String) As Double()
     Dim rawData As String
     Dim results(2) As Double
-    
-    'Removed URL
-    
-    rawData = HTTPGet("quote_URL" & tickerId)
+    rawData = HTTPGet("https://quotes-gw.webullfintech.com/api/stock/tickerRealTime/getQuote?tickerId=" & tickerID)
     Dim word As String
     Dim character As String
     Dim count As Integer
@@ -98,11 +97,8 @@ End Function
 Function getTickerId(symbol As String)
     Dim URL As String
     Dim searchResults As String
-    Dim tickerId As String
-    
-    'Removed URL
-    
-    URL = """ticker_URL" & symbol & "&regionId=6&pageIndex=1&pageSize=1"""
+    Dim tickerID As String
+    URL = """https://quotes-gw.webullfintech.com/api/search/pc/tickers?keyword=" & symbol & "&regionId=6&pageIndex=1&pageSize=1"""
     searchResults = HTTPGet(URL)
     Dim i As Long
     Dim word As String
@@ -118,7 +114,7 @@ Function getTickerId(symbol As String)
         If character <> """" Then
             word = word & character
             If word = "tickerId" Then
-                tickerId = Mid(searchResults, i + 3, 9)
+                tickerID = Mid(searchResults, i + 3, 9)
             End If
         Else
             If save Then
@@ -140,7 +136,7 @@ Function getTickerId(symbol As String)
     Next i
     
     If symbolFound = symbol Then
-        getTickerId = tickerId
+        getTickerId = tickerID
     Else
         getTickerId = "failed"
     End If
@@ -150,19 +146,19 @@ End Function
 Function updateStocks()
     Dim sheet As Worksheet
     Set sheet = Worksheets("Sheet1")
-    Dim tickerId As String
+    Dim tickerID As String
     Dim symbol As String
     Dim results() As Double
     Dim i As Long
     i = 1
     While Not IsEmpty(sheet.Cells(i, 1))
         symbol = sheet.Cells(i, 1).Value
-        tickerId = getTickerId(symbol)
+        tickerID = getTickerId(symbol)
         
-        If tickerId = "failed" Then
+        If tickerID = "failed" Then
             i = i
         Else
-            results = getStockData(tickerId)
+            results = getStockData(tickerID)
             sheet.Cells(i, 2).Value = results(0)
             sheet.Cells(i, 3).Value = results(1)
             sheet.Cells(i, 4).Value = results(2)
@@ -173,26 +169,90 @@ Function updateStocks()
     Wend
 End Function
 
-Function updateStock(i As Integer)
+Function updateStock(i As Integer, Optional passedSymbol As String = "")
     Dim sheet As Worksheet
     Set sheet = Worksheets("Sheet1")
-    Dim tickerId As String
+    Dim tickerID As String
     Dim symbol As String
     Dim results() As Double
-    symbol = sheet.Cells(i, 1).Value
-    tickerId = getTickerId(symbol)
-        
-    If tickerId = "failed" Then
-        i = i
+    If i = 0 Then
+        symbol = passedSymbol
     Else
-        results = getStockData(tickerId)
-        sheet.Cells(i, 2).Value = results(0)
-        sheet.Cells(i, 3).Value = results(1)
-        sheet.Cells(i, 4).Value = results(2)
+        symbol = sheet.Cells(i, 1).Value
+    End If
+    tickerID = getTickerId(symbol)
+        
+    If tickerID <> "failed" Then
+        results = getStockData(tickerID)
+        stocks(nextAvailableIndex) = symbol
+        values(nextAvailableIndex, 0) = results(0)
+        values(nextAvailableIndex, 1) = results(1)
+        values(nextAvailableIndex, 2) = results(2)
+        nextAvailableIndex = nextAvailableIndex + 1
+        sheet.Cells(i, 2).Formula = "=quote(A" + CStr(i) + ")"
+        sheet.Cells(i, 3).Formula = "=eps(A" + CStr(i) + ")"
+        sheet.Cells(i, 4).Formula = "=dividend(A" + CStr(i) + ")"
     End If
 End Function
 
 Function testing()
     testVal = testVal + 1
     testing = testVal
+End Function
+
+Function quote(symbol As String)
+    Dim i As Long
+    Dim found As Boolean
+    For i = 0 To 200
+        If stocks(i) = symbol Then
+            quote = values(i, 0)
+            found = True
+            Exit For
+        End If
+    Next i
+    If Not found Then
+        Dim tickerID As String
+        tickerID = getTickerId(symbol)
+        If tickerID <> "failed" Then
+            quote = getStockData(tickerID)(0)
+        End If
+    End If
+End Function
+
+Function eps(symbol As String)
+    Dim i As Long
+    Dim found As Boolean
+    For i = 0 To 200
+        If stocks(i) = symbol Then
+            eps = values(i, 1)
+            found = True
+            Exit For
+        End If
+    Next i
+    If Not found Then
+        Dim tickerID As String
+        tickerID = getTickerId(symbol)
+        If tickerID <> "failed" Then
+            eps = getStockData(tickerID)(1)
+        End If
+    End If
+End Function
+
+Function dividend(symbol As String)
+    Dim i As Long
+    Dim found As Boolean
+    For i = 0 To 200
+        If stocks(i) = symbol Then
+            dividend = values(i, 2)
+            found = True
+            Exit For
+        End If
+    Next i
+    If Not found Then
+        Dim tickerID As String
+        tickerID = getTickerId(symbol)
+        If tickerID <> "failed" Then
+            dividend = getStockData(tickerID)(2)
+        End If
+    End If
 End Function
